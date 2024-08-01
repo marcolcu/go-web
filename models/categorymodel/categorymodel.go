@@ -22,13 +22,13 @@ func Create(category entities.Category) bool {
 	return result.RowsAffected > 0
 }
 
-func Detail(id int) entities.Category {
+func Detail(id int) (entities.Category, error) {
 	var category entities.Category
 	result := config.DB.First(&category, id)
 	if result.Error != nil {
-		panic(result.Error)
+		return category, result.Error
 	}
-	return category
+	return category, nil
 }
 
 func Update(id int, category entities.Category) bool {

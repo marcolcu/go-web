@@ -5,6 +5,7 @@ import (
 	"go-web-native/controllers/authcontroller"
 	"go-web-native/controllers/categorycontroller"
 	"go-web-native/controllers/frontend/fauthcontroller"
+	"go-web-native/controllers/frontend/fcategorycontroller"
 	"go-web-native/controllers/homecontroller"
 	"go-web-native/controllers/productcontroller"
 	"log"
@@ -23,10 +24,15 @@ func main() {
 	// Middleware to protect routes
 	http.Handle("/home", authcontroller.AuthMiddleware(http.HandlerFunc(homecontroller.Welcome)))
 
-	http.Handle("/categories", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Index)))
-	http.Handle("/categories/add", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Add)))
-	http.Handle("/categories/edit", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Edit)))
-	http.Handle("/categories/delete", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Delete)))
+	
+	http.Handle("/categories", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Index)))
+	http.Handle("/categories/add", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Add)))
+	http.Handle("/categories/edit", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Edit)))
+
+	http.Handle("/api/categories", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Index)))
+	http.Handle("/api/categories/add", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Add)))
+	http.Handle("/api/categories/edit", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Edit)))
+	http.Handle("/api/categories/delete", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Delete)))
 
 	http.Handle("/products", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Index)))
 	http.Handle("/products/add", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Add)))
