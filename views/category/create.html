@@ -70,6 +70,7 @@
                 $.ajax({
                     type: 'POST',
                     url: '/api/categories/add',
+                    contentType: 'application/json',
                     data: JSON.stringify(datas), // Use the datas object as the data to send
                     success: function (response) {
                         window.location.href = "/categories";

@@ -1,15 +1,9 @@
 package fauthcontroller
 
 import (
-	"net/http"
-	"text/template"
+	"github.com/gofiber/fiber/v2"
 )
 
-func Index(w http.ResponseWriter, r *http.Request) {
-	temp, err := template.ParseFiles("views/auth/register.html")
-	if err!= nil {
-        panic(err)
-    }
-
-	temp.Execute(w, nil)
+func Index(c *fiber.Ctx) error {
+	return c.Render("views/auth/register.html", nil)
 }

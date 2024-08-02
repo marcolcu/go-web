@@ -4,158 +4,169 @@ import (
 	"go-web-native/entities"
 	"go-web-native/models/categorymodel"
 	"go-web-native/models/productmodel"
-	"net/http"
 	"strconv"
-	"text/template"
+	"strings"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
 )
 
-func Index(w http.ResponseWriter, r *http.Request) {
+func Index(c *fiber.Ctx) error {
+	// Fetch query parameters
+	draw := c.Query("draw")
+	start := c.Query("start")
+	length := c.Query("length")
+	search := c.Query("search[value]") // Fetch the search query
+
+	// Parse query parameters for pagination
+	startInt, err := strconv.Atoi(start)
+	if err != nil {
+		startInt = 0
+	}
+	lengthInt, err := strconv.Atoi(length)
+	if err != nil {
+		lengthInt = 10
+	}
+
+	// Fetch all products
 	products := productmodel.GetAll()
-	data := map[string]any {
-		"products": products,
+	totalRecords := len(products) // Total number of records
+
+	// Filter products based on the search query
+	filteredProducts := []entities.Product{}
+	for _, product := range products {
+		if search == "" || strings.Contains(strings.ToLower(product.Name), strings.ToLower(search)) {
+			filteredProducts = append(filteredProducts, product)
+		}
+	}
+	filteredRecords := len(filteredProducts)
+
+	// Slice products according to pagination parameters
+	end := startInt + lengthInt
+	if end > filteredRecords {
+		end = filteredRecords
+	}
+	filteredProducts = filteredProducts[startInt:end]
+
+	// Create DataTables response format
+	response := map[string]interface{}{
+		"draw":            draw,
+		"recordsTotal":    totalRecords,
+		"recordsFiltered": filteredRecords,
+		"data":            filteredProducts,
 	}
 
-	temp, err := template.ParseFiles("views/product/index.html")
-	if err!= nil {
-        panic(err)
-    }
-
-	temp.Execute(w, data)
+	// Set content type and encode response
+	return c.JSON(response)
 }
+func Detail(c *fiber.Ctx) error {
+	// Handle only GET requests
+	if c.Method() != fiber.MethodGet {
+		return c.Status(fiber.StatusMethodNotAllowed).JSON(fiber.Map{"error": "Method not allowed"})
+	}
 
-func Detail(w http.ResponseWriter, r *http.Request) {
-	idString := r.URL.Query().Get("id")
-	id, err := strconv.Atoi(idString)
-	if err!= nil {
-        panic(err)
-    }
+	// Parse the product ID from the URL parameters
+	id, err := strconv.Atoi(c.Query("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid product ID"})
+	}
 
+	// Fetch the product details from the database
 	product := productmodel.Detail(id)
-	data := map[string]any {
-		"product": product,
+	if (product == entities.Product{}) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
 	}
 
-	temp, err := template.ParseFiles("views/product/detail.html")
-	if err!= nil {
-		panic(err)
-	}
-
-	temp.Execute(w, data)
+	// Return the product details
+	return c.JSON(product)
 }
 
-func Add(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		temp, err := template.ParseFiles("views/product/create.html")
-		if err != nil {
-			panic(err)
-		}
-
-		categories := categorymodel.GetAll()
-		data := map[string]any{
-			"categories": categories,
-		}
-
-		temp.Execute(w, data)
+func Add(c *fiber.Ctx) error {
+	// Handle only POST requests
+	if c.Method() != fiber.MethodPost {
+		return c.Status(fiber.StatusMethodNotAllowed).JSON(fiber.Map{"error": "Method not allowed"})
 	}
 
-	if r.Method == "POST" {
-		var product entities.Product
-
-		categoryId, err := strconv.Atoi(r.FormValue("category_id"))
-		if err != nil {
-			panic(err)
-		}
-
-		stock, err := strconv.Atoi(r.FormValue("stock"))
-		if err != nil {
-			panic(err)
-		}
-
-		product.Name = r.FormValue("name")
-		product.CategoryId = uint(categoryId)
-		product.Stock = int64(stock)
-		product.Description = r.FormValue("description")
-		product.CreatedAt = time.Now()
-		product.UpdatedAt = time.Now()
-
-		if ok := productmodel.Create(product); !ok {
-			http.Redirect(w, r, r.Header.Get("Referer"), http.StatusTemporaryRedirect)
-			return
-		}
-
-		http.Redirect(w, r, "/products", http.StatusSeeOther)
+	// Parse the JSON payload into the Product struct
+	var product entities.Product
+	if err := c.BodyParser(&product); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
+
+	// Set timestamps
+	product.CreatedAt = time.Now()
+	product.UpdatedAt = time.Now()
+
+	// Create the product in the database
+	if ok := productmodel.Create(product); !ok {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create product"})
+	}
+
+	// Return the created product
+	return c.Status(fiber.StatusCreated).JSON(product)
 }
-
-func Edit(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		temp, err := template.ParseFiles("views/product/edit.html")
+func Edit(c *fiber.Ctx) error {
+	// Handle GET request to fetch product details by ID
+	if c.Method() == fiber.MethodGet {
+		id, err := strconv.Atoi(c.Params("id"))
 		if err != nil {
-			panic(err)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid product ID"})
 		}
 
-		idString := r.URL.Query().Get("id")
-		id, err := strconv.Atoi(idString)
-		if err != nil {
-			panic(err)
-		}
-
-		categories := categorymodel.GetAll()
 		product := productmodel.Detail(id)
-		data := map[string]any{
+		if (product == entities.Product{}) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
+		}
+
+		categories := categorymodel.GetAll() // Fetch all categories
+
+		data := map[string]interface{}{
 			"product":    product,
 			"categories": categories,
 		}
 
-		temp.Execute(w, data)
+		return c.JSON(data)
 	}
 
-	if r.Method == "POST" {
+	// Handle POST request to update product details
+	if c.Method() == fiber.MethodPost {
 		var product entities.Product
 
-		idString := r.FormValue("id")
-		id, err := strconv.Atoi(idString)
-		if err != nil {
-			panic(err)
+		// Parse product data from the request body
+		if err := c.BodyParser(&product); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 		}
 
-		categoryId, err := strconv.Atoi(r.FormValue("category_id"))
+		// Extract ID from query parameters
+		id, err := strconv.Atoi(c.Query("id"))
 		if err != nil {
-			panic(err)
-		}
-
-		stock, err := strconv.Atoi(r.FormValue("stock"))
-		if err != nil {
-			panic(err)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid product ID"})
 		}
 
 		product.Id = uint(id)
-		product.Name = r.FormValue("name")
-		product.CategoryId = uint(categoryId)
-		product.Stock = int64(stock)
-		product.Description = r.FormValue("description")
 		product.UpdatedAt = time.Now()
 
+		// Update the product
 		if ok := productmodel.Update(id, product); !ok {
-			http.Redirect(w, r, r.Header.Get("Referer"), http.StatusTemporaryRedirect)
-			return
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update product"})
 		}
 
-		http.Redirect(w, r, "/products", http.StatusSeeOther)
+		return c.Status(fiber.StatusOK).JSON(product)
 	}
+
+	// Handle unsupported methods
+	return c.Status(fiber.StatusMethodNotAllowed).JSON(fiber.Map{"error": "Method not allowed"})
 }
 
-func Delete(w http.ResponseWriter, r *http.Request) {
-	idString := r.URL.Query().Get("id")
-	id, err := strconv.Atoi(idString)
-	if err!= nil {
-		panic(err)
+func Delete(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Query("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid product ID"})
 	}
 
 	if err := productmodel.Delete(id); err != nil {
-		panic(err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete product"})
 	}
 
-	http.Redirect(w, r, "/products", http.StatusSeeOther)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Product deleted successfully"})
 }

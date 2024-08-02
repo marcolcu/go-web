@@ -1,13 +1,12 @@
 package authcontroller
 
 import (
-	"encoding/json"
 	"go-web-native/entities"
 	"go-web-native/models/usermodel"
-	"net/http"
-	"text/template"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/dgrijalva/jwt-go"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -25,45 +24,88 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-func Register(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+// Session store
+var store = session.New()
 
-	if r.Method == "POST" {
-		// Handle POST request: process JSON data
+func Register(c *fiber.Ctx) error {
+	var credentials Credentials
+	if err := c.BodyParser(&credentials); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
+	}
+
+	if credentials.Name == "" || credentials.Email == "" || credentials.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please provide all fields"})
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(credentials.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	user := entities.User{
+		Name:      credentials.Name,
+		Email:     credentials.Email,
+		Password:  string(hashedPassword),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := usermodel.CreateUser(user); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	// Automatically login the user
+	expirationTime := time.Now().Add(5 * time.Minute)
+	claims := &Claims{
+		Email: credentials.Email,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	// Set cookie
+	c.Cookie(&fiber.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		Expires:  expirationTime,
+		HTTPOnly: true,
+	})
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"message": "Registration and login successful"})
+}
+
+func Login(c *fiber.Ctx) error {
+	if c.Method() == fiber.MethodGet {
+		// Render the login template
+		return c.Render("views/auth/login.html", nil)
+	}
+
+	if c.Method() == fiber.MethodPost {
 		var credentials Credentials
-		err := json.NewDecoder(r.Body).Decode(&credentials)
+		if err := c.BodyParser(&credentials); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid form data"})
+		}
+
+		if credentials.Email == "" || credentials.Password == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please provide all fields"})
+		}
+
+		user, err := usermodel.GetUserByEmail(credentials.Email)
 		if err != nil {
-			http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
-			return
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "User not found"})
 		}
 
-		if credentials.Name == "" || credentials.Email == "" || credentials.Password == "" {
-			http.Error(w, `{"error": "Please provide all fields"}`, http.StatusBadRequest)
-			return
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(credentials.Password)); err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid password"})
 		}
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(credentials.Password), bcrypt.DefaultCost)
-		if err != nil {
-			http.Error(w, `{"error": "Internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-
-		user := entities.User{
-			Name:      credentials.Name,
-			Email:     credentials.Email,
-			Password:  string(hashedPassword),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		err = usermodel.CreateUser(user)
-		if err != nil {
-			http.Error(w, `{"error": "Internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-
-		// Automatically login the user
-		expirationTime := time.Now().Add(5 * time.Minute)
+		expirationTime := time.Now().Add(1 * time.Hour)
 		claims := &Claims{
 			Email: credentials.Email,
 			StandardClaims: jwt.StandardClaims{
@@ -74,148 +116,54 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, err := token.SignedString(jwtKey)
 		if err != nil {
-			http.Error(w, `{"error": "Internal server error"}`, http.StatusInternalServerError)
-			return
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
 		}
 
-		http.SetCookie(w, &http.Cookie{
-			Name:     "token",
-			Value:    tokenString,
-			Expires:  expirationTime,
-			HttpOnly: true,
-		})
-
-		// Respond with a success message
-		response := map[string]string{"message": "Registration and login successful"}
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-
-	// Handle method not allowed
-	http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
-}
-
-func Login(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		temp, err := template.ParseFiles("views/auth/login.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		temp.Execute(w, nil)
-		return
-	}
-
-	if r.Method == "POST" {
-		err := r.ParseForm()
-		if err != nil {
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
-			return
-		}
-
-		email := r.FormValue("email")
-		password := r.FormValue("password")
-
-		if email == "" || password == "" {
-			http.Error(w, "Please provide all fields", http.StatusBadRequest)
-			return
-		}
-
-		var user entities.User
-		user, err = usermodel.GetUserByEmail(email)
-		if err != nil {
-			http.Error(w, "User not found", http.StatusUnauthorized)
-			return
-		}
-
-		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-		if err != nil {
-			http.Error(w, "Invalid password", http.StatusUnauthorized)
-			return
-		}
-
-		expirationTime := time.Now().Add(1 * time.Hour)
-		claims := &Claims{
-			Email: email,
-			StandardClaims: jwt.StandardClaims{
-				ExpiresAt: expirationTime.Unix(),
-			},
-		}
-
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString(jwtKey)
-		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		http.SetCookie(w, &http.Cookie{
+		// Set cookie
+		c.Cookie(&fiber.Cookie{
 			Name:    "token",
 			Value:   tokenString,
 			Expires: expirationTime,
 		})
 
-		http.Redirect(w, r, "/home", http.StatusSeeOther)
-	}
-}
-
-func Logout(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		// Invalidate the token by setting an expired cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "token",
-			Value:    "",
-			Expires:  time.Now().Add(-1 * time.Hour), // Set an expiration in the past
-			HttpOnly: true,
-			Path:     "/", // Ensure the cookie is removed across all paths
-		})
-
-		// Respond with a JSON message
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		response := map[string]string{"message": "Logout successful"}
-		json.NewEncoder(w).Encode(response)
-		return
+		return c.Redirect("/home")
 	}
 
-	http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
+	return c.Status(fiber.StatusMethodNotAllowed).JSON(fiber.Map{"error": "Method not allowed"})
 }
 
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("token")
-		if err != nil {
-			if err == http.ErrNoCookie {
-				// Redirect to previous page with alert message
-				http.Redirect(w, r, "/login?error=Unauthorized", http.StatusSeeOther)
-				return
-			}
-			http.Error(w, "Bad request", http.StatusBadRequest)
-			return
-		}
-
-		tknStr := c.Value
-		claims := &Claims{}
-
-		tkn, err := jwt.ParseWithClaims(tknStr, claims, func(token *jwt.Token) (interface{}, error) {
-			return jwtKey, nil
-		})
-		if err != nil {
-			if err == jwt.ErrSignatureInvalid {
-				// Redirect to previous page with alert message
-				http.Redirect(w, r, "/login?error=Unauthorized", http.StatusSeeOther)
-				return
-			}
-			http.Error(w, "Bad request", http.StatusBadRequest)
-			return
-		}
-		if !tkn.Valid {
-			// Redirect to previous page with alert message
-			http.Redirect(w, r, "/login?error=Unauthorized", http.StatusSeeOther)
-			return
-		}
-
-		next.ServeHTTP(w, r)
+func Logout(c *fiber.Ctx) error {
+	// Invalidate the token by setting an expired cookie
+	c.Cookie(&fiber.Cookie{
+		Name:     "token",
+		Value:    "",
+		Expires:  time.Now().Add(-1 * time.Hour), // Set an expiration in the past
+		HTTPOnly: true,
+		Path:     "/", // Ensure the cookie is removed across all paths
 	})
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Logout successful"})
+}
+
+func AuthMiddleware(c *fiber.Ctx) error {
+	cookie := c.Cookies("token")
+	if cookie == "" {
+		return c.Redirect("/login?error=Unauthorized")
+	}
+
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(cookie, claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtKey, nil
+	})
+	if err != nil {
+		if err == jwt.ErrSignatureInvalid {
+			return c.Redirect("/login?error=Unauthorized")
+		}
+		return c.Status(fiber.StatusBadRequest).SendString("Bad request")
+	}
+	if !token.Valid {
+		return c.Redirect("/login?error=Unauthorized")
+	}
+
+	return c.Next()
 }

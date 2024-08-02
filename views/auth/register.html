@@ -75,6 +75,7 @@
                 $.ajax({
                     type: 'POST',
                     url: '/api/register',
+                    contentType: 'application/json',
                     data: JSON.stringify(datas), // Use the datas object as the data to send
                     success: function(response) {
                         window.location.href = "/login";

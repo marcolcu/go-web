@@ -6,41 +6,60 @@ import (
 	"go-web-native/controllers/categorycontroller"
 	"go-web-native/controllers/frontend/fauthcontroller"
 	"go-web-native/controllers/frontend/fcategorycontroller"
+	"go-web-native/controllers/frontend/fproductcontroller"
 	"go-web-native/controllers/homecontroller"
 	"go-web-native/controllers/productcontroller"
 	"log"
-	"net/http"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func main() {
 	config.ConnectDB()
 
-	// 1. Auth
-	http.HandleFunc("/login", authcontroller.Login)
+	app := fiber.New()
 
-	http.HandleFunc("/register", fauthcontroller.Index)
-	http.HandleFunc("/api/register", authcontroller.Register)
-	http.HandleFunc("/api/logout", authcontroller.Logout)
+	// Redirect root URL to /login
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.Redirect("/login")
+	})
+
+	// Auth routes
+	app.Post("/login", authcontroller.Login)
+	app.Get("/login", authcontroller.Login)
+	app.Get("/register", fauthcontroller.Index)
+	app.Post("/api/register", authcontroller.Register)
+	app.Post("/api/logout", authcontroller.Logout)
 
 	// Middleware to protect routes
-	http.Handle("/home", authcontroller.AuthMiddleware(http.HandlerFunc(homecontroller.Welcome)))
+	app.Use("/home", authcontroller.AuthMiddleware)
+	app.Get("/home", homecontroller.Welcome)
 
-	
-	http.Handle("/categories", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Index)))
-	http.Handle("/categories/add", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Add)))
-	http.Handle("/categories/edit", authcontroller.AuthMiddleware(http.HandlerFunc(fcategorycontroller.Edit)))
+	app.Use("/categories", authcontroller.AuthMiddleware)
+	app.Get("/categories", fcategorycontroller.Index)
+	app.Get("/categories/add", fcategorycontroller.Add)
+	app.Get("/categories/edit", fcategorycontroller.Edit)
 
-	http.Handle("/api/categories", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Index)))
-	http.Handle("/api/categories/add", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Add)))
-	http.Handle("/api/categories/edit", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Edit)))
-	http.Handle("/api/categories/delete", authcontroller.AuthMiddleware(http.HandlerFunc(categorycontroller.Delete)))
+	app.Use("/products", authcontroller.AuthMiddleware)
+	app.Get("/products", fproductcontroller.Index)
+	app.Get("/products/add", fproductcontroller.Add)
+	app.Get("/products/edit", fproductcontroller.Edit)
+	app.Get("/products/detail", fproductcontroller.Detail)
 
-	http.Handle("/products", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Index)))
-	http.Handle("/products/add", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Add)))
-	http.Handle("/products/detail", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Detail)))
-	http.Handle("/products/edit", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Edit)))
-	http.Handle("/products/delete", authcontroller.AuthMiddleware(http.HandlerFunc(productcontroller.Delete)))
+	app.Use("/api/categories", authcontroller.AuthMiddleware)
+	app.Get("/api/categories", categorycontroller.Index)
+	app.Post("/api/categories/add", categorycontroller.Add)
+	app.Get("/api/categories/edit", categorycontroller.Edit)
+	app.Post("/api/categories/edit", categorycontroller.Edit)
+	app.Delete("/api/categories/delete", categorycontroller.Delete)
+
+	app.Use("/api/products", authcontroller.AuthMiddleware)
+	app.Get("/api/products", productcontroller.Index)
+	app.Post("/api/products/add", productcontroller.Add)
+	app.Get("/api/products/detail", productcontroller.Detail)
+	app.Post("/api/products/edit", productcontroller.Edit)
+	app.Delete("/api/products/delete", productcontroller.Delete)
 
 	log.Println("Server running on port 8080")
-	http.ListenAndServe(":8080", nil)
+	log.Fatal(app.Listen(":8080"))
 }

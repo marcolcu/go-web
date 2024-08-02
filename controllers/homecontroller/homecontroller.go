@@ -1,15 +1,9 @@
 package homecontroller
 
 import (
-	"net/http"
-	"text/template"
+	"github.com/gofiber/fiber/v2"
 )
 
-func Welcome(w http.ResponseWriter, r *http.Request) {
-	temp, err := template.ParseFiles("views/home/index.html")
-	if err!= nil {
-        panic(err)
-    }
-
-	temp.Execute(w, nil)
+func Welcome(c *fiber.Ctx) error {
+	return c.Render("views/home/index.html", nil)
 }

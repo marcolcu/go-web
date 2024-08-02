@@ -17,14 +17,6 @@ func ConnectDB() {
 	}
 
 	// Migrate the schema
-	err = db.AutoMigrate(&entities.Product{})
-	if err != nil {
-		panic("Failed to migrate database schema")
-	}
-	err = db.AutoMigrate(&entities.Category{})
-	if err != nil {
-		panic("Failed to migrate database schema")
-	}
 	err = db.AutoMigrate(&entities.User{})
 	if err != nil {
 		panic("Failed to migrate database schema")
