@@ -79,9 +79,9 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		}
 
 		http.SetCookie(w, &http.Cookie{
-			Name:    "token",
-			Value:   tokenString,
-			Expires: expirationTime,
+			Name:     "token",
+			Value:    tokenString,
+			Expires:  expirationTime,
 			HttpOnly: true,
 		})
 
@@ -158,6 +158,28 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 		http.Redirect(w, r, "/home", http.StatusSeeOther)
 	}
+}
+
+func Logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// Invalidate the token by setting an expired cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "token",
+			Value:    "",
+			Expires:  time.Now().Add(-1 * time.Hour), // Set an expiration in the past
+			HttpOnly: true,
+			Path:     "/", // Ensure the cookie is removed across all paths
+		})
+
+		// Respond with a JSON message
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		response := map[string]string{"message": "Logout successful"}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
 }
 
 func AuthMiddleware(next http.Handler) http.Handler {

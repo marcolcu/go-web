@@ -20,6 +20,7 @@ func main() {
 
 	http.HandleFunc("/register", fauthcontroller.Index)
 	http.HandleFunc("/api/register", authcontroller.Register)
+	http.HandleFunc("/api/logout", authcontroller.Logout)
 
 	// Middleware to protect routes
 	http.Handle("/home", authcontroller.AuthMiddleware(http.HandlerFunc(homecontroller.Welcome)))
